@@ -10,7 +10,7 @@ using Random = UnityEngine.Random;
 namespace Oxide.Plugins
 {
     [Info("Better Charcoal", "Dana", "2.0.0")]
-    [Description(" ")]
+    [Description("Say goodbye to charcoal shortages, hello to explosives!")]
 
     public class BetterCharcoal : RustPlugin
     {
