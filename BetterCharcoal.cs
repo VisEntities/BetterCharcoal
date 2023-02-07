@@ -1,23 +1,24 @@
-using System.Collections.Generic;
-using System;
 using Newtonsoft.Json;
-using Oxide.Core.Plugins;
-using Oxide.Core.Configuration;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Better Charcoal", "Dana", "2.0.0")]
+    [Info("Better Charcoal", "Dana", "2.1.0")]
     [Description("Say goodbye to charcoal shortages, hello to explosives!")]
 
     public class BetterCharcoal : RustPlugin
     {
         #region Fields
 
-        private static BetterCharcoal instance;
-        private static Configuration config;
+        private static BetterCharcoal _instance;
+        private static Configuration _config;
+
+        private CharcoalController _controller;
+        private Coroutine _coroutine;
 
         #endregion Fields
 
@@ -45,6 +46,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Fuel Consumption Rate")]
             public int FuelConsumptionRate { get; set; }
+
+            [JsonProperty(PropertyName = "Electric Furnace Charcoal Yield Interval")]
+            public float ElectricFurnaceCharcoalYieldInterval { get; set; }
         }
 
         private Configuration GetDefaultConfig()
@@ -57,16 +61,17 @@ namespace Oxide.Plugins
                 LowestCharcoalYield = 1,
                 HighestCharcoalYield = 1,
                 CharcoalProductionRate = 1,
-                FuelConsumptionRate = 1
+                FuelConsumptionRate = 1,
+                ElectricFurnaceCharcoalYieldInterval = 2f
             };
         }
 
         protected override void LoadConfig()
         {
             base.LoadConfig();
-            config = Config.ReadObject<Configuration>();
+            _config = Config.ReadObject<Configuration>();
 
-            if (string.Compare(config.Version, Version.ToString()) < 0)
+            if (string.Compare(_config.Version, Version.ToString()) < 0)
                 UpdateConfig();
 
             SaveConfig();
@@ -74,12 +79,12 @@ namespace Oxide.Plugins
 
         protected override void LoadDefaultConfig()
         {
-            config = GetDefaultConfig();
+            _config = GetDefaultConfig();
         }
 
         protected override void SaveConfig()
         {
-            Config.WriteObject(config, true);
+            Config.WriteObject(_config, true);
         }
 
         private void UpdateConfig()
@@ -88,11 +93,16 @@ namespace Oxide.Plugins
 
             Configuration defaultConfig = GetDefaultConfig();
 
-            if (string.Compare(config.Version, "1.0.0") < 0)
-                config = defaultConfig;
+            if (string.Compare(_config.Version, "1.0.0") < 0)
+                _config = defaultConfig;
 
-            PrintWarning("Configuration update complete! Updated from version " + config.Version + " to " + Version.ToString());
-            config.Version = Version.ToString();
+            if (string.Compare(_config.Version, "2.1.0") < 0)
+            {
+                _config.ElectricFurnaceCharcoalYieldInterval = defaultConfig.ElectricFurnaceCharcoalYieldInterval;
+            }
+
+            PrintWarning("Configuration update complete! Updated from version " + _config.Version + " to " + Version.ToString());
+            _config.Version = Version.ToString();
         }
 
         #endregion Configuration
@@ -104,8 +114,18 @@ namespace Oxide.Plugins
         /// </summary>
         private void Init()
         {
-            instance = this;
+            _instance = this;
+            _controller = new CharcoalController();
+
             Permission.Register();
+        }
+
+        /// <summary>
+        /// Hook: Called after server startup is complete and awaits connections or when a plugin is hotloaded.
+        /// </summary>
+        private void OnServerInitialized()
+        {
+            StartCoroutine();
         }
 
         /// <summary>
@@ -113,8 +133,20 @@ namespace Oxide.Plugins
         /// </summary>
         private void Unload()
         {
-            config = null;
-            instance = null;
+            StopCoroutine();
+            _controller.CleanupOvens();
+
+            _config = null;
+            _instance = null;
+        }
+
+        /// <summary>
+        /// Hook: Called after any entity has spawned.
+        /// </summary>
+        /// <param name="oven"> The oven that has spawned. </param>
+        private void OnEntitySpawned(BaseOven oven)
+        {
+            _controller.Setup(oven);
         }
 
         /// <summary>
@@ -126,52 +158,178 @@ namespace Oxide.Plugins
         /// <returns> True or false if the fuel consumption should be skipped, null otherwise. </returns>
         private object OnFuelConsume(BaseOven oven, Item fuel, ItemModBurnable burnable)
         {
-            BasePlayer player = FindPlayerById(oven.OwnerID);
-            if (!player.IsValid() || !Permission.Verify(player))
+            if (!OvenIsEligible(oven))
                 return null;
 
-            ProcessFuelConsumption(oven, fuel, burnable);
+            CharcoalComponent.GetComponent(oven)?.ConsumeFuel(fuel, burnable);
             return true;
+        }
+
+        /// <summary>
+        /// Called when an oven is turned on or off.
+        /// </summary>
+        /// <param name="electricOven"> The electric oven being toggled. </param>
+        private void OnOvenToggle(ElectricOven electricOven)
+        {
+            if (!OvenIsEligible(electricOven))
+                return;
+            
+            bool ovenTurnedOn = electricOven.IsOn() ? false : true;
+            CharcoalComponent.GetComponent(electricOven).StateChanged(ovenTurnedOn);
         }
 
         #endregion Oxide Hooks
 
-        #region Fuel Consumption
+        #region Coroutine
 
-        /// <summary>
-        /// Processes the consumption of fuel in the oven and produces charcoal if conditions are met.
-        /// </summary>
-        /// <param name="oven"> The oven being used. </param>
-        /// <param name="fuel"> The fuel item being consumed. </param>
-        /// <param name="burnable"> The burnable component of the fuel item. </param>
-        /// <remarks> Substantially similar to the ConsumeFuel method in the BaseOven class. </remarks>
-        private void ProcessFuelConsumption(BaseOven oven, Item fuel, ItemModBurnable burnable)
+        private void StartCoroutine()
         {
-            if (oven.allowByproductCreation && burnable.byproductItem != null)
+            _coroutine = ServerMgr.Instance.StartCoroutine(_controller.SetupOvens());
+        }
+
+        private void StopCoroutine()
+        {
+            if (!_coroutine.IsUnityNull())
             {
-                if (config.EnableCharcoalProduction && Random.Range(0, 100) < config.CharcoalYieldChance)
+                ServerMgr.Instance.StopCoroutine(_coroutine);
+                _coroutine = null;
+            }
+        }
+
+        #endregion Coroutine
+
+        #region Controller
+
+        private class CharcoalController
+        {
+            private HashSet<CharcoalComponent> _components = new HashSet<CharcoalComponent>();
+            
+            public void Register(CharcoalComponent component)
+            {
+                _components.Add(component);
+            }
+
+            public void Unregister(CharcoalComponent component)
+            {
+                _components.Remove(component);
+            }
+            
+            public void Setup(BaseOven oven)
+            {
+                CharcoalComponent.InstallComponent(oven, this);
+            }
+            
+            public IEnumerator SetupOvens()
+            {
+                WaitForSeconds waitDuration = ConVar.FPS.limit > 80 ? CoroutineEx.waitForSeconds(0.01f) : null;
+
+                foreach (var entity in BaseNetworkable.serverEntities)
                 {
-                    Item item = ItemManager.Create(burnable.byproductItem, Random.Range(config.LowestCharcoalYield, config.HighestCharcoalYield) * config.CharcoalProductionRate);
-                    if (!item.MoveToContainer(oven.inventory, -1, true, false, null))
+                    BaseOven oven = entity as BaseOven;
+                    if (!oven.IsValid())
+                        continue;
+
+                    CharcoalComponent.InstallComponent(oven, this);
+
+                    if (oven is ElectricOven && oven.IsOn())
+                        CharcoalComponent.GetComponent(oven).StateChanged(true);
+
+                    yield return waitDuration;
+                }
+            }
+
+            public void CleanupOvens()
+            {
+                foreach (CharcoalComponent component in _components.ToList())
+                {
+                    component.RemoveComponent();
+                }
+            }           
+        }
+
+        #endregion Controller
+
+        #region Component
+        
+        private class CharcoalComponent : FacepunchBehaviour
+        {
+            private BaseOven _oven;
+            private CharcoalController _controller;
+
+            private void OnDestroy()
+            {
+                _controller.Unregister(this);
+            }
+
+            public CharcoalComponent InitializeComponent(CharcoalController controller)
+            {
+                _oven = GetComponent<BaseOven>();
+
+                _controller = controller;
+                _controller.Register(this);
+
+                return this;
+            }
+
+            public static void InstallComponent(BaseOven oven, CharcoalController controller)
+            {
+                oven.gameObject.AddComponent<CharcoalComponent>().InitializeComponent(controller);
+            }
+
+            public static CharcoalComponent GetComponent(BaseOven oven)
+            {
+                return oven.gameObject.GetComponent<CharcoalComponent>();
+            }
+                        
+            public void RemoveComponent()
+            {
+                DestroyImmediate(this);
+            }
+
+            #region Furnace Functions
+
+            public void StateChanged(bool ovenTurnedOn)
+            {
+                if (ovenTurnedOn)
+                    InvokeRepeating(YieldCharcoal, 1f, _config.ElectricFurnaceCharcoalYieldInterval);
+                else
+                    CancelInvoke(YieldCharcoal);
+            }
+
+            private void YieldCharcoal()
+            {
+                if (_config.EnableCharcoalProduction && Random.Range(0, 100) < _config.CharcoalYieldChance)
+                {
+                    Item item = ItemManager.CreateByName("charcoal", Random.Range(_config.LowestCharcoalYield, _config.HighestCharcoalYield) * _config.CharcoalProductionRate);
+                    if (!item.MoveToContainer(_oven.inventory, -1, true, false, null))
                     {
-                        oven.OvenFull();
-                        item.Drop(oven.inventory.dropPosition, oven.inventory.dropVelocity, default(Quaternion));
+                        _oven.OvenFull();
+                        item.Drop(_oven.inventory.dropPosition, _oven.inventory.dropVelocity, default(Quaternion));
+                        CancelInvoke(YieldCharcoal);
                     }
                 }
             }
 
-            if (fuel.amount <= 1)
+            public void ConsumeFuel(Item fuel, ItemModBurnable burnable)
             {
-                fuel.Remove(0f);
-                return;
+                if (_oven.allowByproductCreation && burnable.byproductItem != null)
+                    YieldCharcoal();
+
+                if (fuel.amount <= 1)
+                {
+                    fuel.Remove(0f);
+                    return;
+                }
+
+                fuel.UseItem(_config.FuelConsumptionRate);
+                fuel.fuel = burnable.fuelAmount;
+                fuel.MarkDirty();
             }
 
-            fuel.UseItem(config.FuelConsumptionRate);
-            fuel.fuel = burnable.fuelAmount;
-            fuel.MarkDirty();
+            #endregion Furnace Functions
         }
 
-        #endregion Fuel Consumption
+        #endregion Component
 
         #region Helper Functions
 
@@ -183,6 +341,24 @@ namespace Oxide.Plugins
         private BasePlayer FindPlayerById(ulong playerId)
         {
             return RelationshipManager.FindByID(playerId) ?? null;
+        }
+
+        /// <summary>
+        /// Determines if a oven is eligible for altered charcoal yield based on the owner's permission.
+        /// </summary>
+        /// <param name="oven"> The oven to check eligibility for. </param>
+        /// <returns> True if the oven is eligible, false otherwise. </returns>
+        private bool OvenIsEligible(BaseOven oven)
+        {
+            BasePlayer player = FindPlayerById(oven.OwnerID);
+
+            if (!player.IsValid())
+                return false;
+
+            if (!Permission.Verify(player))
+                return false;
+
+            return true;
         }
 
         #endregion Helper Functions
@@ -198,12 +374,12 @@ namespace Oxide.Plugins
 
             public static void Register()
             {
-                instance.permission.RegisterPermission(USE, instance);
+                _instance.permission.RegisterPermission(USE, _instance);
             }
 
             public static bool Verify(BasePlayer player, string permissionName = USE)
             {
-                if (instance.permission.UserHasPermission(player.UserIDString, permissionName))
+                if (_instance.permission.UserHasPermission(player.UserIDString, permissionName))
                     return true;
 
                 return false;
