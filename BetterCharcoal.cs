@@ -7,7 +7,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Better Charcoal", "Dana", "2.1.0")]
+    [Info("Better Charcoal", "Dana", "2.2.0")]
     [Description("Say goodbye to charcoal shortages, hello to explosives!")]
 
     public class BetterCharcoal : RustPlugin
@@ -47,6 +47,9 @@ namespace Oxide.Plugins
             [JsonProperty(PropertyName = "Fuel Consumption Rate")]
             public int FuelConsumptionRate { get; set; }
 
+            [JsonProperty(PropertyName = "Enable Electric Furnace Charcoal Production")]
+            public bool EnableElectricFurnaceCharcoalProduction { get; set; }
+
             [JsonProperty(PropertyName = "Electric Furnace Charcoal Yield Interval")]
             public float ElectricFurnaceCharcoalYieldInterval { get; set; }
         }
@@ -62,6 +65,7 @@ namespace Oxide.Plugins
                 HighestCharcoalYield = 1,
                 CharcoalProductionRate = 1,
                 FuelConsumptionRate = 1,
+                EnableElectricFurnaceCharcoalProduction = false,
                 ElectricFurnaceCharcoalYieldInterval = 2f
             };
         }
@@ -99,6 +103,11 @@ namespace Oxide.Plugins
             if (string.Compare(_config.Version, "2.1.0") < 0)
             {
                 _config.ElectricFurnaceCharcoalYieldInterval = defaultConfig.ElectricFurnaceCharcoalYieldInterval;
+            }
+
+            if (string.Compare(_config.Version, "2.2.0") < 0)
+            {
+                _config.EnableElectricFurnaceCharcoalProduction = defaultConfig.EnableElectricFurnaceCharcoalProduction;
             }
 
             PrintWarning("Configuration update complete! Updated from version " + _config.Version + " to " + Version.ToString());
@@ -171,9 +180,9 @@ namespace Oxide.Plugins
         /// <param name="electricOven"> The electric oven being toggled. </param>
         private void OnOvenToggle(ElectricOven electricOven)
         {
-            if (!OvenIsEligible(electricOven))
+            if (!OvenIsEligible(electricOven) || !_config.EnableElectricFurnaceCharcoalProduction)
                 return;
-            
+
             bool ovenTurnedOn = electricOven.IsOn() ? false : true;
             CharcoalComponent.GetComponent(electricOven).StateChanged(ovenTurnedOn);
         }
@@ -203,7 +212,7 @@ namespace Oxide.Plugins
         private class CharcoalController
         {
             private HashSet<CharcoalComponent> _components = new HashSet<CharcoalComponent>();
-            
+
             public void Register(CharcoalComponent component)
             {
                 _components.Add(component);
@@ -213,12 +222,12 @@ namespace Oxide.Plugins
             {
                 _components.Remove(component);
             }
-            
+
             public void Setup(BaseOven oven)
             {
                 CharcoalComponent.InstallComponent(oven, this);
             }
-            
+
             public IEnumerator SetupOvens()
             {
                 WaitForSeconds waitDuration = ConVar.FPS.limit > 80 ? CoroutineEx.waitForSeconds(0.01f) : null;
@@ -231,7 +240,7 @@ namespace Oxide.Plugins
 
                     CharcoalComponent.InstallComponent(oven, this);
 
-                    if (oven is ElectricOven && oven.IsOn())
+                    if (oven is ElectricOven && oven.IsOn() && _config.EnableElectricFurnaceCharcoalProduction)
                         CharcoalComponent.GetComponent(oven).StateChanged(true);
 
                     yield return waitDuration;
@@ -244,13 +253,13 @@ namespace Oxide.Plugins
                 {
                     component.RemoveComponent();
                 }
-            }           
+            }
         }
 
         #endregion Controller
 
         #region Component
-        
+
         private class CharcoalComponent : FacepunchBehaviour
         {
             private BaseOven _oven;
@@ -280,7 +289,7 @@ namespace Oxide.Plugins
             {
                 return oven.gameObject.GetComponent<CharcoalComponent>();
             }
-                        
+
             public void RemoveComponent()
             {
                 DestroyImmediate(this);
