@@ -3,8 +3,23 @@ With BetterCharcoal, your players will no longer have to rely on mass campfires 
 
 ![](https://i.imgur.com/SYBADnh.png)
   
-  -------
+-------
   
+## Continuous charcoal production
+Any furnaces that were operating before a server restart or during a plugin reload will automatically resume yielding charcoal, eliminating any interruptions in production.
+  
+----- 
+
+
+## Electric furnaces
+Gone are the days of relying solely on wood to fuel your furnaces. With BetterCharcoal, your electric furnaces will not only eliminate the need for wood, but also double the efficiency with charcoal production!
+
+![](https://i.imgur.com/zspNsiX.png)
+
+Don't let the science fool you, electricity is all you need to get the job done.
+
+-----
+
 ## Permissions
 * `bettercharcoal.use` - Players with this permission will have their ovens produce charcoal differently.
 
@@ -13,31 +28,35 @@ With BetterCharcoal, your players will no longer have to rely on mass campfires 
 ## Configuration
 ```json
 {
-  "Version": "2.0.0",
+  "Version": "2.1.0",
   "Enable Charcoal Production": true,
   "Charcoal Yield Chance": 75,
   "Lowest Charcoal Yield": 1,
   "Highest Charcoal Yield": 1,
   "Charcoal Production Rate": 1,
-  "Fuel Consumption Rate": 1
+  "Fuel Consumption Rate": 1,
+  "Electric Furnace Charcoal Yield Interval": 2.0
 }
 ```
 
 
-#### Enable Charcoal Production
-This option determines whether or not charcoal creation is enabled. If set to false, ovens will not produce charcoal at all. (Default: true)
+### Enable Charcoal Production
+This option determines whether or not charcoal creation is enabled. If set to false, ovens will not produce charcoal at all. Defaults to true.
 
-#### Charcoal Yield Chance
-This setting determines the chance that charcoal will be produced each time the oven burns. (Default: 75%)
+### Charcoal Yield Chance
+This setting determines the chance that charcoal will be produced each time the oven burns. Defaults to 75 percent.
 
-#### Charcoal Yields
-A random amount of charcoal is produced each time the oven burns wood. To ensure a fixed amount of charcoal is produced, set both the minimum and maximum yields to the same number. (Default: both minimum and maximum 1)
+### Charcoal Yields
+A random amount of charcoal is produced each time the oven burns wood. To ensure a fixed amount of charcoal is produced, set both the minimum and maximum yields to the same number. Both minimum and maximum default to 1.
 
-#### Charcoal Production Rate
-This setting determines the rate of charcoal production. For example, if 5 charcoal is produced per burn and the rate is 2, the final output will be 10. (Default: 1)
+### Charcoal Production Rate
+This setting determines the rate of charcoal production. For example, if 5 charcoal is produced per burn and the rate is 2, the final output will be 10. Defaults to 1 charcoal.
 
-#### Fuel Consumption Rate
-This value determines how much wood is consumed during each burn. (Default: 1)
+### Fuel Consumption Rate
+This value determines how much wood is consumed during each burn. Defaults to 1 fuel.
+
+### Charcoal Yield Interval
+This setting specifies the time it takes for an electric furnace to produce a set amount of charcoal. This option only applies to electric furnaces, as the charcoal production interval for regular ovens is based on the consumption of wood.
 
 
 -------
