@@ -1,4 +1,4 @@
-# Say goodbye to charcoal shortages, hello to explosives
+# Say goodbye to charcoal shortages, hello to explosives!
 With BetterCharcoal, your players will no longer have to rely on mass campfires to secure enough of this vital resource. By simple gathering some wood and igniting the furnaces, players will have a steady flow of charcoal pour out - the key ingredient for every successful raid!
 
 ![](https://i.imgur.com/V0kGAT1.png)
